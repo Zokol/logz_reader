@@ -20,7 +20,7 @@ class LogzSearch:
         self.debug = debug
 
         # Logrow filter
-        # Example: {"syslog5452_host": "ubuntu"}, this filters out all hosts that do not have "ubuntu" in the hostname
+        # Example: [{"syslog5452_host": "ubuntu"}], this filters out all hosts that do not have "ubuntu" in the hostname
         self.filters = filters
         self.limit = limit
 
@@ -31,7 +31,7 @@ class LogzSearch:
 
         # If query is for longer than two days, split queries into 24 hour blocks
         while self.day_difference(temp_start, self.end_time) > 2:
-            temp_end = temp_start + datetime.timedelta(days=1)
+            temp_end = self.convert_unix_to_logz_timestamp(self.convert_logz_timestamp_to_unix(temp_start) + 86400)
             self.queries.append({
                 "url": os.environ.get("URL") + "?dayOffset=" + str(self.offset_days(temp_start)),
                 "start_time": temp_start,
@@ -157,11 +157,11 @@ class LogzSearch:
         while self.convert_logz_timestamp_to_unix(end_time) > self.convert_logz_timestamp_to_unix(start_time):
 
             if self.limit:
-                if len(self.logs) >= self.limit:
+                if len(logs) >= self.limit:
                     if self.debug: print("Export limit reached")
                     return logs
-                if query_size + len(self.logs) > self.limit:
-                    query_size = self.limit - len(self.logs)
+                if query_size + len(logs) > self.limit:
+                    query_size = self.limit - len(logs)
 
             data = {
                 "query": {
@@ -176,7 +176,7 @@ class LogzSearch:
                         }
                     }
                 },
-                "size": 10000,
+                "size": query_size,
                 "sort": [
                     "@timestamp"
                 ]
@@ -189,6 +189,8 @@ class LogzSearch:
             if len(results) == 0:
                 if self.debug: print("No results found")
                 return logs
+            else:
+                print(f"API returned {len(results)} rows")
 
             next_start_time = max(
                 results,
@@ -235,19 +237,22 @@ class LogzSearch:
 
     def filter(self, input):
         """
-        It takes a list of log rows and filters out the rows that do not contain the search parameters
+        It takes a list of log rows and returns the rows that contain the search parameters
 
         :param input: The input data to be filtered
         :return: Filtered data
         """
-        output = []
-        for row in input:
-            log_data = row['_source']
-            for filter in self.filters.keys():
-                if filter in log_data:
-                    if self.filter[filter] not in log_data[filter]:
-                        output.append(row)
-        return output
+        if self.filters:
+            output = []
+            for row in input:
+                log_data = row['_source']
+                for filter in self.filters:
+                    if filter["column"] in log_data:
+                        if filter["value"] in log_data[filter["column"]]:
+                            output.append(row)
+            return output
+        else:
+            return input
 
 
 
